@@ -7,6 +7,7 @@
 (define-constant ERR-INVALID-CARGO-AMOUNT (err u105))
 (define-constant ERR-INVALID-INSURANCE-RATE (err u106))
 (define-constant ERR-INVALID-TRANSIT-TIME (err u107))
+(define-constant ERR-INVALID-SHIPMENT-ID (err u108))
 
 ;; Define data maps
 (define-map cargo-shipments 
@@ -26,11 +27,14 @@
 
 ;; Define functions
 (define-public (register-shipment (cargo-amount uint) (insurance-rate uint) (transit-time uint))
-  (let ((shipment-id (+ (var-get shipment-counter) u1)))
+  (let 
+    (
+      (shipment-id (+ (var-get shipment-counter) u1))
+    )
     ;; Validate input parameters
     (asserts! (> cargo-amount u0) ERR-INVALID-CARGO-AMOUNT)
     (asserts! (<= insurance-rate u50) ERR-INVALID-INSURANCE-RATE)
-    (asserts! (> transit-time u0) ERR-INVALID-TRANSIT-TIME)
+    (asserts! (and (> transit-time u0) (<= transit-time u10000)) ERR-INVALID-TRANSIT-TIME)
     
     (map-set cargo-shipments 
       { shipment-id: shipment-id }
@@ -50,10 +54,13 @@
 )
 
 (define-public (dispatch-shipment (shipment-id uint))
-  (let (
-    (shipment (unwrap! (map-get? cargo-shipments { shipment-id: shipment-id }) ERR-SHIPMENT-NOT-ACTIVE))
-    (courier-balance (default-to u0 (map-get? credit-balances tx-sender)))
-  )
+  (let 
+    (
+      (shipment (unwrap! (map-get? cargo-shipments { shipment-id: shipment-id }) ERR-SHIPMENT-NOT-ACTIVE))
+      (courier-balance (default-to u0 (map-get? credit-balances tx-sender)))
+    )
+    ;; Validate shipment ID
+    (asserts! (<= shipment-id (var-get shipment-counter)) ERR-INVALID-SHIPMENT-ID)
     (asserts! (is-none (get courier shipment)) ERR-ALREADY-DISPATCHED)
     (asserts! (>= courier-balance (get cargo-amount shipment)) ERR-INSUFFICIENT-CREDITS)
     
@@ -71,11 +78,14 @@
 )
 
 (define-public (complete-delivery (shipment-id uint))
-  (let (
-    (shipment (unwrap! (map-get? cargo-shipments { shipment-id: shipment-id }) ERR-SHIPMENT-NOT-ACTIVE))
-    (sender-balance (default-to u0 (map-get? credit-balances tx-sender)))
-    (payment-amount (+ (get cargo-amount shipment) (/ (* (get cargo-amount shipment) (get insurance-rate shipment)) u100)))
-  )
+  (let 
+    (
+      (shipment (unwrap! (map-get? cargo-shipments { shipment-id: shipment-id }) ERR-SHIPMENT-NOT-ACTIVE))
+      (sender-balance (default-to u0 (map-get? credit-balances tx-sender)))
+      (payment-amount (+ (get cargo-amount shipment) (/ (* (get cargo-amount shipment) (get insurance-rate shipment)) u100)))
+    )
+    ;; Validate shipment ID
+    (asserts! (<= shipment-id (var-get shipment-counter)) ERR-INVALID-SHIPMENT-ID)
     (asserts! (is-eq (get sender shipment) tx-sender) ERR-NOT-AUTHORIZED)
     (asserts! (is-eq (get status shipment) "IN_TRANSIT") ERR-SHIPMENT-NOT-ACTIVE)
     (asserts! (>= (- block-height (unwrap! (get dispatch-block shipment) ERR-SHIPMENT-NOT-ACTIVE)) (get transit-time shipment)) ERR-SHIPMENT-IN-TRANSIT)
